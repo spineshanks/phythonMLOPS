@@ -1,0 +1,25 @@
+ml_pipeline_config_file: vertex_porchlight_pipeline.json
+gcp_project: gcp-porchlight-1
+region: us-central1
+staging_bucket: gcp-porchlight1
+pipeline_name: vertex-porchlight-pipeline-automl
+pipeline_description: This is the Porchlight POC for Google Cloud (Vertex AI).
+
+input_data:
+    type: csv
+    input_data_uri: gs://gcp-porchlight1/raw_data/ai4i2020_clean_resampled_2.csv
+
+preprocessing:
+    enabled: false
+
+training:
+    enabled: true
+    training_type: automl # custom or automl
+    budget_node_hours: 5
+    disable_early_stopping: false
+    dataset_type: not_used
+    problem_type: not_used
+            
+serving:
+    endpoint_name: test-endpoint
+    endpoint_description: An endpoint for demonstration purposes.

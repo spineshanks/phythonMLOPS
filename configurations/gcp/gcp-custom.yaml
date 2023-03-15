@@ -1,0 +1,78 @@
+ml_pipeline_config_file: vertex_porchlight_pipeline.json
+gcp_project: gcp-porchlight-1
+region: us-central1
+staging_bucket: gcp-porchlight1
+pipeline_name: vertex-porchlight-pipeline
+pipeline_description: This is the Porchlight POC for Google Cloud (Vertex AI).
+
+input_data:
+    type: csv
+    input_data_uri: gs://gcp-porchlight1/raw_data/customerchurnwsex.csv
+    columns: # Necessary for training.training_type = custom
+        - name: own_income
+          type: float
+        - name: job_tenure
+          type: float
+        - name: rating
+          type: float
+        - name: risk_score
+          type: float
+        - name: household_income
+          type: float
+        - name: customer_duration
+          type: float
+        - name: customer_satisfaction
+          type: float
+        - name: sex
+          type: string
+
+preprocessing:
+    enabled: true
+    job_name: example-preprocessing-job
+    image: us-central1-docker.pkg.dev/gcp-porchlight-1/porchlight-images/cleansing:latest
+    build_path: data_cleansing
+
+    output:
+      training_data_path: gs://gcp-porchlight1/processed_data/train/train.csv
+      test_data_path: gs://gcp-porchlight1/processed_data/test/test.csv
+      validation_data_path: gs://gcp-porchlight1/processed_data/validation/validation.csv
+
+training:
+    enabled: true
+    training_type: custom # custom or automl
+    image: us-central1-docker.pkg.dev/gcp-porchlight-1/porchlight-images/training:latest
+    build_path: hypertune
+    model_output_path: gs://gcp-porchlight1/model
+
+    hyperparameter_tuning:
+      number_of_trials: 1
+      parallel_trial_count: 1
+
+      metrics:
+        mse: minimize
+
+      hyperparameters:
+        learning_rate:
+          type: double # can be double, integer, categorical, discrete
+          range:
+            min: 0.001
+            max: 1
+            scale: log
+        subsample:
+          type: double
+          range:
+            min: 0.001
+            max: 1
+            scale: log
+
+        
+
+    
+    #data:
+    #    file:
+    #        input_data_path: gs://seabrook-ai-vertex-staging/raw_data/customerchurnwsex.csv
+            
+serving_options:
+    image: us-docker.pkg.dev/vertex-ai/prediction/sklearn-cpu.1-0:latest
+    endpoint_name: test-endpoint
+    endpoint_description: An endpoint for demonstration purposes.

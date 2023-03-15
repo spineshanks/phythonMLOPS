@@ -1,0 +1,34 @@
+# Current configuration for the data analytics workbench
+# TODO: make configurable for all 3 CSPs
+
+ml_pipeline_config_file: vertex_porchlight_pipeline.json
+azure_subscription_id: <subscription_id>       # Add Azure subscription ID
+azure_resource_group: <resource_group_name>   # Add Azure resource group name
+azure_workspace: <workspace_name>             # Add Azure Machine Learning workspace name
+azure_region: <region_name>                   # Add Azure region name
+staging_container: <container_name>           # Add Azure storage account container name
+pipeline_name: vertex-porchlight-pipeline-automl
+pipeline_description: This is the Porchlight POC for Azure Cloud.
+
+input_data:
+    type: azure_blob                           # Change input data type to Azure Blob Storage
+    input_data_uri: https://<storage_account_name>.blob.core.windows.net/<container_name>/device_data/device_telemetry   # Add input data URI for Azure Blob Storage
+    create_input_dataset: true
+    dataset_name: device-dataset-csv
+
+preprocessing:
+    enabled: false
+
+training:
+    enabled: true
+    training_type: automl # custom or automl
+    job_name: device-data-failure-csv
+    target_column: machine_failure
+    budget_node_hours: 10000
+    disable_early_stopping: false
+    dataset_type: not_used
+    problem_type: classification  # possible types: classification, regression
+            
+serving:
+    endpoint_name: test-endpoint-csv
+    endpoint_description: An endpoint for demonstration purposes.
