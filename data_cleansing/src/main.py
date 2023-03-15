@@ -1,27 +1,28 @@
-# Module imports
+# Azure compatible code with comments where changing
+
 import logging
 import os
 import pathlib
 import requests
 import tempfile
 import argparse
-
-#import boto3
-from google.cloud import storage
+import azure.storage.blob
 import numpy as np
 import pandas as pd
-
 from sklearn.compose import ColumnTransformer
 from sklearn.impute import SimpleImputer
 from sklearn.pipeline import Pipeline
 from sklearn.preprocessing import StandardScaler, OneHotEncoder
 
+# Set up logger
 logger = logging.getLogger()
 logger.setLevel(logging.INFO)
-logger.addHandler(logging.StreamHandler())
+handler = logging.StreamHandler()
+handler.setFormatter(logging.Formatter('%(levelname)s - %(message)s'))
+logger.addHandler(handler)
 
-# Since we get a headerless CSV file we specify the column names here.
-feature_columns_names = [
+# Define constants
+FEATURE_COLUMNS_NAMES = [
     "own_income",
     "job_tenure",
     "rating",
@@ -31,9 +32,8 @@ feature_columns_names = [
     "customer_satisfaction",
     "sex"
 ]
-label_column = "churn_risk"
-
-feature_columns_dtype = {
+LABEL_COLUMN = "churn_risk"
+FEATURE_COLUMNS_DTYPE = {
     "own_income": np.float64,
     "job_tenure": np.float64,
     "rating": np.float64,
@@ -43,104 +43,108 @@ feature_columns_dtype = {
     "customer_satisfaction": np.float64,
     "sex": str,
 }
-label_column_dtype = {"churn_risk": np.float64}
+LABEL_COLUMN_DTYPE = {"churn_risk": np.float64}
+
+# Define function to merge two dictionaries
 
 
-def merge_two_dicts(x, y):
-    """Merges two dicts, returning a new copy."""
-    z = x.copy()
-    z.update(y)
-    return z
+def merge_two_dicts(dict1, dict2):
+    """Merge two dictionaries, returning a new copy. If duplicate keys, values of the second dictionary will override the first."""
+    return {**dict1, **dict2}
 
-logger.debug("Starting preprocessing.")
-parser = argparse.ArgumentParser()
-parser.add_argument("--input-data", dest="input_data", type=str, required=True)
-args = parser.parse_args()
 
-input_data = args.input_data
+if __name__ == '__main__':
 
-base_dir = "."
-pathlib.Path(f"{base_dir}/data").mkdir(parents=True, exist_ok=True)
-#input_data = args.input_data
-bucket_name = input_data.split("/")[2]
-key = "/".join(input_data.split("/")[3:])
+    logger.debug("Starting preprocessing")
 
-logger.info("Downloading data from bucket: %s, key: %s", bucket_name, key)
-fn = f"{base_dir}/data/customerchurn.csv"
-#s3 = boto3.resource("s3")
-#s3.Bucket(bucket).download_file(key, fn)
-storage_client = storage.Client()
-bucket = storage_client.bucket(bucket_name)
-blob = bucket.blob(key)
-blob.download_to_filename(fn)
+    # Parse arguments
 
-logger.debug("Reading downloaded data.")
-df = pd.read_csv(
-    fn,
-    header=None,
-    names=feature_columns_names + [label_column],
-    dtype=merge_two_dicts(feature_columns_dtype, label_column_dtype),
-)
-os.unlink(fn)
+    parser = argparse.ArgumentParser(description='Process strings.')
+    parser.add_argument('--input-data', dest='input_data', type=str, required=True,
+                        help='an input data for processing')
+    args = parser.parse_args()
 
-logger.debug("Defining transformers.")
-numeric_features = list(feature_columns_names)
-numeric_features.remove("sex")
-numeric_transformer = Pipeline(
-    steps=[("imputer", SimpleImputer(strategy="median")), ("scaler", StandardScaler())]
-)
+    input_data = args.input_data
 
-categorical_features = ["sex"]
-categorical_transformer = Pipeline(
-    steps=[
-        ("imputer", SimpleImputer(strategy="constant", fill_value="missing")),
-        ("onehot", OneHotEncoder(handle_unknown="ignore")),
-    ]
-)
+    # Create directories to store data
+    base_dir = "."
+    pathlib.Path(f"{base_dir}/data").mkdir(parents=True, exist_ok=True)
+    for k in ['train', 'validation', 'test']:
+        os.mkdir(f"{base_dir}/{k}")
 
-preprocess = ColumnTransformer(
-    transformers=[
-        ("num", numeric_transformer, numeric_features),
-        ("cat", categorical_transformer, categorical_features),
-    ]
-)
+    # Download data from Azure Blob Storage
+    logger.info("Downloading data from Azure Blob Storage")
+    _, filename = tempfile.mkstemp()
+    blob_service_client = azure.storage.blob.BlobServiceClient.from_connection_string(
+        input_data)
+    container_client = blob_service_client.get_container_client(
+        'azureml')
+    blob_client = container_client.get_blob_client('customerchurn.csv')
+    with open(filename, "wb") as my_blob:
+        download_stream = blob_client.download_blob()
+        my_blob.write(download_stream.readall())
 
-logger.info("Applying transforms.")
-y = df.pop("churn_risk")
-X_pre = preprocess.fit_transform(df)
-y_pre = y.to_numpy().reshape(len(y), 1)
+    # Read data into Pandas DataFrame
+    logger.debug("Reading downloaded data into Pandas DataFrame")
+    df = pd.read_csv(
+        filename,
+        header=None,
+        names=FEATURE_COLUMNS_NAMES + [LABEL_COLUMN],
+        dtype=merge_two_dicts(FEATURE_COLUMNS_DTYPE, LABEL_COLUMN_DTYPE),
+    )
+    os.remove(filename)
 
-X = np.concatenate((y_pre, X_pre), axis=1)
+    # Define transformers for preprocessing
+    numeric_features = list(FEATURE_COLUMNS_NAMES)
+    numeric_features.remove("sex")
+    numeric_transformer = Pipeline(
+        steps=[("imputer", SimpleImputer(strategy="median")),
+               ("scaler", StandardScaler())]
+    )
 
-logger.info("Splitting %d rows of data into train, validation, test datasets.", len(X))
-np.random.shuffle(X)
-train, validation, test = np.split(X, [int(0.7 * len(X)), int(0.85 * len(X))])
+    categorical_features = ["sex"]
+    categorical_transformer = Pipeline(
+        steps=[
+            ("imputer", SimpleImputer(strategy="constant", fill_value="missing")),
+            ("onehot", OneHotEncoder(handle_unknown="ignore")),
+        ]
+    )
 
-output_rel_paths = {
-    'train': 'train/train.csv',
-    'validation': 'validation/validation.csv',
-    'test': 'test/test.csv'
-}
+    preprocess = ColumnTransformer(
+        transformers=[
+            ("num", numeric_transformer, numeric_features),
+            ("cat", categorical_transformer, categorical_features),
+        ]
+    )
 
-for k in output_rel_paths.keys():
-    os.mkdir(f"{base_dir}/{k}")
+    # Apply transformations to data
+    logger.info("Applying transforms")
+    y = df.pop(LABEL_COLUMN)
+    X_pre = preprocess.fit_transform(df)
+    y_pre = y.to_numpy().reshape(len(y), 1)
 
-output_bkt_rel_paths = {k:f"processed_data/{v}" for k,v in output_rel_paths.items()}
-output_local_abs_paths = {k:f"{base_dir}/{v}" for k,v in output_rel_paths.items()}
+    dataset = np.concatenate((y_pre, X_pre), axis=1)
 
-logger.info("Writing out datasets to %s.", output_bkt_rel_paths)
-pd.DataFrame(train).to_csv(output_local_abs_paths['train'], header=False, index=False)
-pd.DataFrame(validation).to_csv(
-    output_local_abs_paths['validation'], header=False, index=False
-)
-pd.DataFrame(test).to_csv(output_local_abs_paths['test'], header=False, index=False)
+    logger.info(
+        "Splitting %d rows of data into train, validation and test datasets", len(dataset))
+    np.random.shuffle(dataset)
+    train, validation, test = np.split(
+        dataset, [int(0.7 * len(dataset)), int(0.85 * len(dataset))])
 
-train_blob = bucket.blob(output_bkt_rel_paths['train'])
-validation_blob = bucket.blob(output_bkt_rel_paths['validation'])
-test_blob = bucket.blob(output_bkt_rel_paths['test'])
+    # Write out preprocessed data to local file system
+    output_rel_paths = {
+        'train': 'train/train.csv',
+        'validation': 'validation/validation.csv',
+        'test': 'test/test.csv'
+    }
 
-train_blob.upload_from_filename(output_local_abs_paths['train'])
-validation_blob.upload_from_filename(output_local_abs_paths['validation'])
-test_blob.upload_from_filename(output_local_abs_paths['test'])
+    output_local_abs_paths = {
+        k: f"{base_dir}/{v}" for k, v in output_rel_paths.items()}
 
-# return (f"gs://{bucket_name}/{output_bkt_rel_paths['train']}", f"gs://{bucket_name}/{output_bkt_rel_paths['validation']}", f"gs://{bucket_name}/{output_bkt_rel_paths['test']}")
+    logger.info("Writing out datasets to %s", output_local_abs_paths['train'])
+    pd.DataFrame(train).to_csv(
+        output_local_abs_paths['train'], header=False, index=False)
+    pd.DataFrame(validation).to_csv(
+        output_local_abs_paths['validation'], header=False, index=False
+    )
+    pd.DataFrame

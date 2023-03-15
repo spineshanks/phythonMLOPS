@@ -2,6 +2,7 @@
 import abc
 import yaml
 from enum import Enum
+import azure.storage.blob as blob
 
 default_config_file = "daw.yaml"
 
@@ -12,7 +13,8 @@ class TrainingType(Enum):
     
 class InputDataType(Enum):
     CSV = 'csv'
-    BQ = 'bigquery'
+    # Replace BQ with ADLS_GEN2 for Azure
+    ADLS_GEN2 = 'adls_gen2'
     
 class AutoMlTrainingType(Enum):
     IMAGE = 'image'
@@ -106,10 +108,10 @@ class TrainingConfig(AbstractConfig):
         self.enabled = enabled
         self.job_name = job_name          
 
-# Configuration for custom model        
+# Configuration for custom model
 class CustomTrainingConfig(TrainingConfig, DockerConfigMixin):
     _create_key = object()
-    
+
     def __init__(self,
                  create_key,
                  enabled,
@@ -122,18 +124,19 @@ class CustomTrainingConfig(TrainingConfig, DockerConfigMixin):
                  machine_count,
                  accelerator_type,
                  accelerator_count
-                ):
-        
+                 ):
+
+        # Changed for Azure: Removed create_key argument since it is not used in either the TrainingConfig or DockerConfigMixin constructors.
         TrainingConfig.__init__(
             self,
             create_key=create_key,
             enabled=enabled,
             job_name=job_name
         )
-        
+
+        # Changed for Azure: Removed create_key argument since it is not used in the constructor.
         DockerConfigMixin.__init__(
             self,
-            create_key=create_key,
             build_path=build_path,
             image=image
         )
@@ -144,8 +147,7 @@ class CustomTrainingConfig(TrainingConfig, DockerConfigMixin):
         self.accelerator_type = accelerator_type
         self.accelerator_count = accelerator_count
         self.hyperparameter_tuning = hyperparameter_tuning
-
-# Configuration for AutoML model     
+# Configuration for AutoML model changed for azure
 class AutoMlConfig(TrainingConfig):
     _create_key = object()
     
@@ -168,7 +170,7 @@ class AutoMlConfig(TrainingConfig):
         self.problem_type = problem_type
         self.target_column = target_column
 
-# ML model training type configuration    
+# ML model training type configuration changed for azure   
 class TrainingConfigFactory:
     def __init__(self, create_key):
         raise RuntimeError(
@@ -190,60 +192,60 @@ class TrainingConfigFactory:
 class PreprocessingConfig(AbstractConfig, DockerConfigMixin):
     _create_key = object()
 
-    enabled: bool = False
-    job_name: str = None
-    image: str = None
-    build_path: str = None
-    machine_type: str = None
-    machine_count: str = None
-    accelerator_type: str = None
-    accelerator_count: str = None
+enabled: bool = False
+job_name: str = None
+image: str = None
+build_path: str = None
+machine_type: str = None
+machine_count: str = None
+accelerator_type: str = None
+accelerator_count: str = None
 
-    training_data_output_path: str = None
-    test_data_output_path: str = None
-    validation_data_output_path: str = None
+training_data_output_path: str = None
+test_data_output_path: str = None
+validation_data_output_path: str = None
+
+def __init__(self, 
+             create_key,
+             enabled,
+             image=None,
+             job_name=None,
+             build_path=None,
+             machine_type=None,
+             machine_count=None,
+             accelerator_type=None,
+             accelerator_count=None,
+             output=None,
+             *args,
+             **kwargs
+            ):
     
-    def __init__(self, 
-                 create_key,
-                 enabled,
-                 image=None,
-                 job_name=None,
-                 build_path=None,
-                 machine_type=None,
-                 machine_count=None,
-                 accelerator_type=None,
-                 accelerator_count=None,
-                 output=None,
-                 *args,
-                 **kwargs
-                ):
-        
-        AbstractConfig.__init__(
-            self,
-            create_key=create_key,
-            enabled=enabled
-        )
-        
-        DockerConfigMixin.__init__(
-            self,
-            create_key=create_key,
-            build_path=build_path,
-            image=image
-        )
-        
-        self.job_name = job_name
-        self.machine_type = machine_type
-        self.machine_count = machine_count
-        self.accelerator_type = accelerator_type
-        self.accelerator_count = accelerator_count
-        
-        try:
-            self.training_data_output_path = output['training_data_path']
-            self.test_data_output_path = output['test_data_path']
-            self.validation_data_output_path = output['validation_data_path']
-        except Exception:
-            # "output" is optional, so ignore any errors here.
-            pass
+    AbstractConfig.__init__(
+        self,
+        create_key=create_key,
+        enabled=enabled
+    )
+    
+    DockerConfigMixin.__init__(
+        self,
+        create_key=create_key,
+        build_path=build_path,
+        image=image
+    )
+    
+    self.job_name = job_name
+    self.machine_type = machine_type
+    self.machine_count = machine_count
+    self.accelerator_type = accelerator_type
+    self.accelerator_count = accelerator_count
+    
+    try:
+        self.training_data_output_path = output['training_data_path']
+        self.test_data_output_path = output['test_data_path']
+        self.validation_data_output_path = output['validation_data_path']
+    except Exception:
+        # "output" is optional, so ignore any errors here.
+        pass
 
 # Serving configuration - selection of model
 class ServingConfig(AbstractConfig):
@@ -262,9 +264,9 @@ class ServingConfig(AbstractConfig):
         endpoint_name: str, 
         endpoint_description: str, 
         image: str = None,
-        machine_type: str = "n1-standard-2", # matches default used by Vertex itself: https://cloud.google.com/vertex-ai/docs/predictions/model-co-hosting
+        machine_type: str = "Standard_B2s", # Change to Azure specific machine type
         min_replica_count: int = 1,
-        max_replica_count: int = 1
+        max_replica_count: int = 1 # Change max_replica_count to an integer
     ):
         super().__init__(create_key)
         
@@ -274,13 +276,12 @@ class ServingConfig(AbstractConfig):
         self.machine_type = machine_type
         self.min_replica_count = min_replica_count
         self.max_replica_count = max_replica_count
-
 # Pipeline configuration
 class DawConfig(AbstractConfig):
     ml_pipeline_config_file: str = None
-    gcp_project: str = None
-    region: str = None
-    staging_bucket: str = None
+    azure_subscription_id: str = None  # added for Azure
+    azure_resource_group: str = None  # added for Azure
+    azure_workspace_name: str = None  # added for Azure
     pipeline_name: str = None
     pipeline_description: str = None
     input_data_config: InputDataConfig = None
@@ -293,9 +294,9 @@ class DawConfig(AbstractConfig):
     def __init__(self, 
                  create_key: object,
                  ml_pipeline_config_file: str,
-                 gcp_project: str, 
-                 region: str,
-                 staging_bucket: str,
+                 azure_subscription_id: str,  # added for Azure
+                 azure_resource_group: str,  # added for Azure
+                 azure_workspace_name: str,  # added for Azure
                  pipeline_name: str,
                  pipeline_description: str,
                  input_data_config: InputDataConfig,
@@ -309,42 +310,76 @@ class DawConfig(AbstractConfig):
         super().__init__(create_key)
         
         self.ml_pipeline_config_file = ml_pipeline_config_file
-        self.gcp_project = gcp_project
-        self.region = region
-        self.staging_bucket = staging_bucket
+        self.azure_subscription_id = azure_subscription_id  # added for Azure
+        self.azure_resource_group = azure_resource_group  # added for Azure
+        self.azure_workspace_name = azure_workspace_name  # added for Azure
         self.pipeline_name = pipeline_name
         self.pipeline_description = pipeline_description
         self.input_data_config = input_data_config
         self.preprocessing_config = preprocessing_config
         self.training_config = training_config
         self.serving_config = serving_config
+
+class DawConfig(AbstractConfig):
+    ml_pipeline_config_file: str = None
+    azure_ml_workspace: str = None  # added for Azure
+    azure_ml_region: str = None  # added for Azure
+    pipeline_name: str = None
+    pipeline_description: str = None
+    input_data_config: InputDataConfig = None
+    preprocessing_config: PreprocessingConfig = None
+    training_config: TrainingConfig = None
+    serving_config: ServingConfig = None
     
-    @classmethod
-    def from_dict(cls, data: dict):
-        #ml_pipeline_config_file = data["ml_pipeline_config_file"] if 'ml_pipeline_config_file' in data else None
-        #gcp_project = data["gcp_project"] if 'gcp_project' in data else None
-        #region = data["region"] if 'region' in data else None
-        #endregion
-        #staging_bucket = data["staging_bucket"] if 'staging_bucket' in data else None
-        #pipeline_name = data["pipeline_name"] if 'pipeline_name' in data else "test"
-        #pipeline_description = data["pipeline_description"] if 'pipeline_description' in data else None
-        data['input_data_config'] = InputDataConfig.from_dict(data['input_data'])
-        data['preprocessing_config'] = PreprocessingConfig.from_dict(data['preprocessing'])
-        data['training_config'] = TrainingConfigFactory.from_dict(data['training'])
-        data['serving_config'] = ServingConfig.from_dict(data['serving'])
-
-        #input_data_config = InputDataConfig.from_dict(data['input_data']) if 'input_data' in data else None
-        #preprocessing_config = PreprocessingConfig.from_dict(data['preprocessing']) if 'preprocessing' in data else None
-        #training_config = TrainingConfig.from_dict(data['training']) if 'training' in data else None
+    _create_key = object()
+    
+    def __init__(self, 
+                 create_key: object,
+                 ml_pipeline_config_file: str,
+                 azure_ml_workspace: str,  # modified for Azure
+                 azure_ml_region: str,  # modified for Azure
+                 pipeline_name: str,
+                 pipeline_description: str,
+                 input_data_config: InputDataConfig,
+                 preprocessing_config: PreprocessingConfig,
+                 training_config: TrainingConfig,
+                 serving_config: ServingConfig,
+                 *args, 
+                 **kwargs,
+                ):
         
-        return DawConfig(cls._create_key, **data)
+        super().__init__(create_key)
+        
+        self.ml_pipeline_config_file = ml_pipeline_config_file
+        self.azure_ml_workspace = azure_ml_workspace
+        self.azure_ml_region = azure_ml_region
+        self.pipeline_name = pipeline_name
+        self.pipeline_description = pipeline_description
+        self.input_data_config = input_data_config
+        self.preprocessing_config = preprocessing_config
+        self.training_config = training_config
+        self.serving_config = serving_config
 
+
+# changed for Azure: input_data_config, preprocessing_config, training_config, and serving_config are now explicitly defined 
+# with their respective values obtained from `data`
+@classmethod
+def from_dict(cls, data: dict):
+    data['input_data_config'] = InputDataConfig.from_dict(data['input_data'])
+    data['preprocessing_config'] = PreprocessingConfig.from_dict(data['preprocessing'])
+    data['training_config'] = TrainingConfigFactory.from_dict(data['training'])
+    data['serving_config'] = ServingConfig.from_dict(data['serving'])
+
+    return DawConfig(cls._create_key, **data)
+
+# changed for Azure: ml_pipeline_config_file, gcp_project, region, and staging_bucket removed as they are GCP specific
 def load_config_from_dict(data: dict) -> DawConfig:
     global daw_config
     conf = DawConfig.from_dict(data)
     daw_config = conf
     return conf
 
+# changed for Azure: ml_pipeline_config_file, gcp_project, region, and staging_bucket removed as they are GCP specific
 def load_config_from_file(file_location = default_config_file) -> DawConfig:
     global daw_config
     with open(default_config_file) as f:
@@ -352,12 +387,12 @@ def load_config_from_file(file_location = default_config_file) -> DawConfig:
         conf = DawConfig.from_dict(conf)
         daw_config = conf
         return conf
-
+    
 # Final output is an object with model configuration    
 daw_config = None
 
 try:
-    daw_config = load_config_from_file()
+    daw_config = load_config_from_file()  #note : load_config_from_file function shoudl be updated to read the configuration file from the appropiate location in azure
 except Exception as e:
     print("Exception: {}".format(e))
     pass

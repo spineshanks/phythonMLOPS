@@ -2,15 +2,17 @@
 # TODO: make configurable for all 3 CSPs
 
 ml_pipeline_config_file: vertex_porchlight_pipeline.json
-gcp_project: porchlight-next-22-363923
-region: us-central1
-staging_bucket: vertex-mlops-amhh57
+azure_subscription_id: 0326e29e-adf6-477e-8130-35f4da1df8a7       # Add Azure subscription ID
+azure_resource_group: rg-mlopslite-9999-prod   # Add Azure resource group name
+azure_workspace: mlw-mlopslite-9999-prod             # Add Azure Machine Learning workspace name
+azure_region: <region_name>                   # Add Azure region name
+staging_container: <container_name>           # Add Azure storage account container name
 pipeline_name: vertex-porchlight-pipeline-automl
-pipeline_description: This is the Porchlight POC for Google Cloud (Vertex AI).
+pipeline_description: This is the Porchlight POC for Azure Cloud.
 
 input_data:
-    type: bigquery
-    input_data_uri: porchlight-next-22-363923.device_data.device_telemetry
+    type: azure_blob                           # Change input data type to Azure Blob Storage
+    input_data_uri: https://azureml2271858472.blob.core.windows.net/azureml   # Add input data URI for Azure Blob Storage
     create_input_dataset: true
     dataset_name: device-dataset-csv
 
@@ -30,4 +32,3 @@ training:
 serving:
     endpoint_name: test-endpoint-csv
     endpoint_description: An endpoint for demonstration purposes.
-    
